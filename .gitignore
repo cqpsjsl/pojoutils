@@ -3,6 +3,7 @@
 *.class
 target
 src/test
+.idea
 # Log file
 *.log
 
