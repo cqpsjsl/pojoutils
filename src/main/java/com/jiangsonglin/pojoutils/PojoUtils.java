@@ -1,6 +1,8 @@
 package com.jiangsonglin.pojoutils;
 
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.*;
 import java.util.*;
@@ -10,17 +12,29 @@ import java.util.*;
  */
 
 public class PojoUtils {
+    // 日志门面
+    final static Logger logger = LoggerFactory.getLogger(PojoUtils.class);
 
     private PojoUtils() {
     }
 
-    public static Converter converter() {
+    public static Converter getConverter() {
         return new PojoConverter();
     }
 
-    public static  <T, V> Converter converter(T fromObject, V destObject) {
+    public static <T, V> Converter converter(T fromObject, V destObject) {
         PojoConverter pojoConverter = new PojoConverter();
         pojoConverter.converter(fromObject, destObject);
+        return pojoConverter;
+    }
+    public static <T, V> Converter converterByOrder(T fromObject, V destObject) {
+        PojoConverter pojoConverter = new PojoConverter();
+        pojoConverter.converterByOrder(fromObject, destObject);
+        return pojoConverter;
+    }
+    public static <T, V> Converter listConverter(List<T> formList, List<V> toList, Class<?> toClazz) {
+        PojoConverter pojoConverter = new PojoConverter();
+        pojoConverter.listConverter(formList,  toList, toClazz);
         return pojoConverter;
     }
     private static class PojoConverter implements Converter {
@@ -34,12 +48,13 @@ public class PojoUtils {
 
 
         /**
-         *  单个bean转换
+         * 单个bean转换
+         *
          * @param fromObject 来源bean
-         * @param destObject   转到目标bean
+         * @param destObject 转到目标bean
          * @param <T>
          * @param <V>
-         * @return    to
+         * @return to
          */
         @Override
         public <T, V> V converter(T fromObject, V destObject) {
@@ -54,14 +69,14 @@ public class PojoUtils {
             HashMap<String, String> newNameMap = new HashMap<>();
             if (fromFiles.length < destFields.length) {
                 // 扫描from,
-                fields =fromFiles;
+                fields = fromFiles;
                 // nameMap反转
                 reserve = true;
                 Iterator<String> iterator = nameMap.keySet().iterator();
                 while (iterator.hasNext()) {
                     String key = iterator.next();
                     String value = nameMap.get(key);
-                    newNameMap.put(value,key);
+                    newNameMap.put(value, key);
                 }
 
             }
@@ -70,8 +85,8 @@ public class PojoUtils {
                 field.setAccessible(true);
                 String name = field.getName();
                 // 获取替换名字
-                String repName = reserve?newNameMap.get(name):name;
-                name = repName == null? name :repName;
+                String repName = reserve ? newNameMap.get(name) : name;
+                name = repName == null ? name : repName;
                 Class<?> type = field.getType();
                 map.put(captureName(name), type);
             }
@@ -83,45 +98,61 @@ public class PojoUtils {
                 Object invoke = null;
                 String lowerName = lowerName(destMethodName);
                 // 忽略赋值
-                if (ignoreNameSet.contains(lowerName)){
-                    System.out.println(lowerName+"已忽略");
-
-                    continue;}
+                if (ignoreNameSet.contains(lowerName)) {
+                    //System.out.println(lowerName+"已忽略");
+                    logger.info("【{}】已设置忽略", lowerName);
+                    continue;
+                }
 
                 // isReg
                 String formName = nameMap.get(lowerName);
-                String finalMethodName = formName==null
-                        ?destMethodName: captureName(formName);
+                String finalMethodName = formName == null
+                        ? destMethodName : captureName(formName);
                 try {
+                    String getName = "get" + finalMethodName;
                     try {
-                        Method getMethod = fromClass.getDeclaredMethod("get" + finalMethodName);
+                        Method getMethod = fromClass.getDeclaredMethod(getName);
                         invoke = getMethod.invoke(fromObject);
                     } catch (NoSuchMethodException e) {
-                        //e.printStackTrace();
-                        System.out.println(finalMethodName + "没有找到");
+
+                        logger.info("{}这个方法没找到", getName);
                         String typeName = map.get(destMethodName).getName();
                         boolean aBoolean = isaBoolean(typeName);
                         if (aBoolean) {
-                            Method getMethod = fromClass.getDeclaredMethod("is" + finalMethodName);
-                            invoke = getMethod.invoke(fromObject);
+                            String isName = "is" + finalMethodName;
+
+                            logger.info("正在尝试寻找{}方法",isName);
+                            try {
+                                Method getMethod = fromClass.getDeclaredMethod(isName);
+                                invoke = getMethod.invoke(fromObject);
+                            }catch (NoSuchMethodException e2) {
+                                logger.error("{}这个方法没找到", isName);
+                            }
+
                         }
                     }
                     if (invoke != null) {
                         // get到值 开始注入vo
+                        Class aClass = map.get(destMethodName);
+                        String setName = "set" + destMethodName;
                         try {
-                            Method setMethod = toClass.getDeclaredMethod("set" + destMethodName, map.get(destMethodName));
+                            Method setMethod = toClass.getDeclaredMethod(setName, aClass);
                             setMethod.invoke(destObject, new Object[]{invoke});
                         } catch (NoSuchMethodException e) {
                             // 看看是不是基本数据类型 再找一遍
-                            Class<?> aClass = basicDataType(map.get(destMethodName));
+                            aClass = basicDataType(map.get(destMethodName));
                             if (aClass != null) {
-                                Method setMethod = toClass.getDeclaredMethod("set" + destMethodName, map.get(destMethodName));
-                                setMethod.invoke(destObject, new Object[]{invoke});
+                                try {
+                                    Method setMethod = toClass.getDeclaredMethod(setName, aClass);
+                                    setMethod.invoke(destObject, new Object[]{invoke});
+                                }catch (NoSuchMethodException e2) {
+                                    logger.error("{}方法，参数类型是{}未成功，请检查此方法是否存在！！！",setName,aClass.getName());
+                                }
                             }
                         }
 
                     }
-                } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException | IllegalArgumentException e) {
+                } catch ( IllegalAccessException | InvocationTargetException | IllegalArgumentException e) {
                     // System.err.println(lowerName(finalMethodName)+"赋值给"+lowerName(destMethodName)+"过程失败!");
                     // e.printStackTrace();
 
@@ -135,7 +166,8 @@ public class PojoUtils {
         }
 
         /**
-         *  按照顺序从from给dest赋值，将从成员变量少的对象扫描 默认先从from遍历
+         * 按照顺序从from给dest赋值，将从成员变量少的对象扫描 默认先从from遍历
+         *
          * @param fromObject
          * @param destObject
          * @param <T>
@@ -152,7 +184,7 @@ public class PojoUtils {
 
             Field[] fields = fromFields;
             if (fromFields.length > declaredFields.length) {
-                // 从成员变量少的开始扫描 避免NullPoint
+                // 从成员变量少的开始遍历 避免NullPoint
                 fields = declaredFields;
             }
             Class<?> getClazz = fromObjectClass; // 从from为标准 get
@@ -160,7 +192,7 @@ public class PojoUtils {
             for (int i = 0; i < fields.length; i++) {
                 Field fromField = fromFields[i]; // get
                 String captureName = getCaptureName(fromField);
-                String getName = "get"+captureName;
+                String getName = "get" + captureName;
                 Object invoke = getMethodInvoke(fromObject, getClazz, fromField, captureName, getName);
 
                 if (invoke != null) {
@@ -173,15 +205,17 @@ public class PojoUtils {
                         Method setMethod = setClazz.getDeclaredMethod(setName, declaredField.getType());
                         setMethod.setAccessible(true);
                         try {
-                            setMethod.invoke(destObject,new Object[]{invoke});
+                            setMethod.invoke(destObject, new Object[]{invoke});
                         } catch (IllegalAccessException e) {
-
-                            System.out.println(setName+"没有权限");
+                            logger.info("{}没有权限",setName);
+                            //System.out.println(setName + "没有权限");
                         } catch (InvocationTargetException e) {
-                            System.out.println(setName+"InvocationTargetException");
+                            logger.info("{}: InvocationTargetException",setName);
+                            //System.out.println(setName + "InvocationTargetException");
                         }
                     } catch (NoSuchMethodException e) {
-                        System.err.println(setName+"方法未找到");
+                        logger.error("{}: 方法未找到",setName);
+                        //System.err.println(setName + "方法未找到");
                     }
 
                 }
@@ -192,7 +226,8 @@ public class PojoUtils {
         }
 
         /**
-         *  获取调用方法的返回值
+         * 获取调用方法的返回值
+         *
          * @param fromObject
          * @param getClazz
          * @param fromField
@@ -210,21 +245,23 @@ public class PojoUtils {
             } catch (NoSuchMethodException e) {
                 // 方法没找到 判断是否是布尔
                 if (isaBoolean(fromField.getType().getName())) {
-                    String isGetName = "is"+ captureName;
+                    String isGetName = "is" + captureName;
                     try {
                         Method fromMethod = getClazz.getDeclaredMethod(isGetName);
                         fromMethod.setAccessible(true);
                         invoke = fromMethod.invoke(fromObject);
                     } catch (NoSuchMethodException noSuchMethodException) {
-                        System.err.println(getName +"或者"+isGetName +"方法没有找到");
-                       // noSuchMethodException.printStackTrace();
+                        logger.info("{} 或者 {} 方法没有找到",getName,isGetName);
+                        //System.err.println(getName + "或者" + isGetName + "方法没有找到");
+                        // noSuchMethodException.printStackTrace();
                     } catch (IllegalAccessException | InvocationTargetException illegalAccessException) {
                         // illegalAccessException.printStackTrace();
                     }
                 }
                 //e.printStackTrace();
             } catch (IllegalAccessException | InvocationTargetException e) {
-                System.err.println("调用"+ getName +"获取返回值异常");
+                logger.error("调用{} 获取返回值异常",getName);
+                //System.err.println("调用" + getName + "获取返回值异常");
                 // e.printStackTrace();
             }
             return invoke;
@@ -239,10 +276,11 @@ public class PojoUtils {
 
 
         /**
-         *   List<User> ---> List<UserVo
+         * List<User> ---> List<UserVo
+         *
          * @param formList List<User>
-         * @param toList List<UserVo
-         * @param toClazz UserVo.class
+         * @param toList   List<UserVo
+         * @param toClazz  UserVo.class
          * @param <T>
          * @param <V>
          * @return
@@ -254,11 +292,12 @@ public class PojoUtils {
                 try {
                     Object o = toClazz.newInstance();
                     V v = (V) o;
-                    this.converter(item, v);
+                    converter(item, v);
                     toList.add(v);
                 } catch (InstantiationException | IllegalAccessException e) {
                     e.printStackTrace();
-                    System.err.println("实例化失败！");
+                    logger.error("{} 实例化失败！",toClazz.getName());
+                    //System.err.println("实例化失败！");
                 }
 
             }
@@ -286,7 +325,6 @@ public class PojoUtils {
         }
 
         /**
-         *
          * @param formName id
          * @param destName userId
          * @return
@@ -298,7 +336,8 @@ public class PojoUtils {
         }
 
         /**
-         *  按顺序注入该方法无效
+         * 按顺序注入该方法无效
+         *
          * @param ignoreName
          * @return
          */
@@ -307,6 +346,7 @@ public class PojoUtils {
             ignoreNameSet.add(ignoreName);
             return this;
         }
+
         private Class<?> basicDataType(Class clazz) {
             String name = clazz.getName();
             if (name.equals("boolean")) return Boolean.class;
@@ -341,13 +381,13 @@ public class PojoUtils {
             cs[0] -= 32;
             return String.valueOf(cs);
         }
+
         private String lowerName(String str) {
             // 进行字母的ascii编码前移，效率要高于截取字符串进行转换的操作
             char[] cs = str.toCharArray();
             cs[0] += 32;
             return String.valueOf(cs);
         }
-
 
 
         private <V> Type getGenericType(List<V> toList) {
