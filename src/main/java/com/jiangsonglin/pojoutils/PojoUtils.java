@@ -72,16 +72,9 @@ public class PojoUtils {
                 fields = fromFiles;
                 // nameMap反转
                 reserve = true;
-                Iterator<String> iterator = nameMap.keySet().iterator();
-                while (iterator.hasNext()) {
-                    String key = iterator.next();
-                    String value = nameMap.get(key);
-                    newNameMap.put(value, key);
-                }
-
+                nameMap.forEach((k,v)->newNameMap.put(v,k));
             }
-
-            for (Field field : fields) {
+            Arrays.stream(fields).forEach(field -> {
                 field.setAccessible(true);
                 String name = field.getName();
                 // 获取替换名字
@@ -89,19 +82,15 @@ public class PojoUtils {
                 name = repName == null ? name : repName;
                 Class<?> type = field.getType();
                 map.put(captureName(name), type);
-            }
+            });
             // all fields name
-            Set<String> set = map.keySet();
-            Iterator<String> iterator = set.iterator();
-            while (iterator.hasNext()) {
-                String destMethodName = iterator.next(); // UserIds
+            map.forEach((destMethodName,v)->{
                 Object invoke = null;
                 String lowerName = lowerName(destMethodName);
                 // 忽略赋值
                 if (ignoreNameSet.contains(lowerName)) {
-                    //System.out.println(lowerName+"已忽略");
                     logger.info("【{}】已设置忽略", lowerName);
-                    continue;
+                    return;
                 }
 
                 // isReg
@@ -111,20 +100,17 @@ public class PojoUtils {
                 try {
                     String getName = "get" + finalMethodName;
                     try {
-                        Method getMethod = fromClass.getDeclaredMethod(getName);
-                        invoke = getMethod.invoke(fromObject);
+                        invoke = fromClass.getDeclaredMethod(getName).invoke(fromObject);
                     } catch (NoSuchMethodException e) {
 
                         logger.info("{}这个方法没找到", getName);
                         String typeName = map.get(destMethodName).getName();
-                        boolean aBoolean = isaBoolean(typeName);
-                        if (aBoolean) {
+                        if (isaBoolean(typeName)) {
                             String isName = "is" + finalMethodName;
 
                             logger.info("正在尝试寻找{}方法",isName);
                             try {
-                                Method getMethod = fromClass.getDeclaredMethod(isName);
-                                invoke = getMethod.invoke(fromObject);
+                                invoke = fromClass.getDeclaredMethod(isName).invoke(fromObject);
                             }catch (NoSuchMethodException e2) {
                                 logger.error("{}这个方法没找到", isName);
                             }
@@ -136,15 +122,13 @@ public class PojoUtils {
                         Class aClass = map.get(destMethodName);
                         String setName = "set" + destMethodName;
                         try {
-                            Method setMethod = toClass.getDeclaredMethod(setName, aClass);
-                            setMethod.invoke(destObject, new Object[]{invoke});
+                            toClass.getDeclaredMethod(setName, aClass).invoke(destObject, new Object[]{invoke});
                         } catch (NoSuchMethodException e) {
                             // 看看是不是基本数据类型 再找一遍
                             aClass = basicDataType(map.get(destMethodName));
                             if (aClass != null) {
                                 try {
-                                    Method setMethod = toClass.getDeclaredMethod(setName, aClass);
-                                    setMethod.invoke(destObject, new Object[]{invoke});
+                                    toClass.getDeclaredMethod(setName, aClass).invoke(destObject, new Object[]{invoke});
                                 }catch (NoSuchMethodException e2) {
                                     logger.error("{}方法，参数类型是{}未成功，请检查此方法是否存在！！！",setName,aClass.getName());
                                 }
@@ -153,11 +137,9 @@ public class PojoUtils {
 
                     }
                 } catch ( IllegalAccessException | InvocationTargetException | IllegalArgumentException e) {
-                    // System.err.println(lowerName(finalMethodName)+"赋值给"+lowerName(destMethodName)+"过程失败!");
-                    // e.printStackTrace();
 
                 }
-            }
+            });
             return destObject;
         }
 
@@ -176,7 +158,6 @@ public class PojoUtils {
          */
         @Override
         public <T, V> V converterByOrder(T fromObject, V destObject) {
-            LinkedHashSet<String> linkedHashSet = new LinkedHashSet<>();
             Class<?> fromObjectClass = fromObject.getClass();
             Field[] fromFields = fromObjectClass.getDeclaredFields();
             Class<?> destObjectClass = destObject.getClass();
@@ -208,14 +189,11 @@ public class PojoUtils {
                             setMethod.invoke(destObject, new Object[]{invoke});
                         } catch (IllegalAccessException e) {
                             logger.info("{}没有权限",setName);
-                            //System.out.println(setName + "没有权限");
                         } catch (InvocationTargetException e) {
                             logger.info("{}: InvocationTargetException",setName);
-                            //System.out.println(setName + "InvocationTargetException");
                         }
                     } catch (NoSuchMethodException e) {
                         logger.error("{}: 方法未找到",setName);
-                        //System.err.println(setName + "方法未找到");
                     }
 
                 }
@@ -252,17 +230,11 @@ public class PojoUtils {
                         invoke = fromMethod.invoke(fromObject);
                     } catch (NoSuchMethodException noSuchMethodException) {
                         logger.info("{} 或者 {} 方法没有找到",getName,isGetName);
-                        //System.err.println(getName + "或者" + isGetName + "方法没有找到");
-                        // noSuchMethodException.printStackTrace();
                     } catch (IllegalAccessException | InvocationTargetException illegalAccessException) {
-                        // illegalAccessException.printStackTrace();
                     }
                 }
-                //e.printStackTrace();
             } catch (IllegalAccessException | InvocationTargetException e) {
                 logger.error("调用{} 获取返回值异常",getName);
-                //System.err.println("调用" + getName + "获取返回值异常");
-                // e.printStackTrace();
             }
             return invoke;
         }
@@ -287,8 +259,7 @@ public class PojoUtils {
          */
         @Override
         public <T, V> List<V> listConverter(List<T> formList, List<V> toList, Class<?> toClazz) {
-
-            for (T item : formList) {
+            formList.stream().forEach(item->{
                 try {
                     Object o = toClazz.newInstance();
                     V v = (V) o;
@@ -297,10 +268,8 @@ public class PojoUtils {
                 } catch (InstantiationException | IllegalAccessException e) {
                     e.printStackTrace();
                     logger.error("{} 实例化失败！",toClazz.getName());
-                    //System.err.println("实例化失败！");
                 }
-
-            }
+            });
             return toList;
         }
 
