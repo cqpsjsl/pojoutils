@@ -1,5 +1,5 @@
 # pojoConverter
-
+ 停止更新,请使用fastbean
 #### 介绍
 JavaBean之间的转换，DAO->Vo的转换。DAO的字段多，Vo的字段少。需要把DAO里的部分数据赋值给Vo
 
